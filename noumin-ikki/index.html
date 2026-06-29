@@ -48,7 +48,7 @@
   const art={title:new Image(),gameplay:new Image(),hero:new Image(),enemyItems:new Image(),stageBgs:[],titleReady:false,gameplayReady:false,heroReady:false,enemyItemsReady:false};
   art.title.onload=()=>art.titleReady=true; art.gameplay.onload=()=>art.gameplayReady=true; art.hero.onload=()=>art.heroReady=true; art.enemyItems.onload=()=>art.enemyItemsReady=true;
   art.title.src='assets/generated-title-bg.png'; art.gameplay.src='assets/generated-gameplay-bg.png'; art.hero.src='assets/hero-back-sprite.png'; art.enemyItems.src='assets/enemy-item-sprite.png';
-  const stageBgFiles=['assets/generated-gameplay-morning.png','assets/generated-gameplay-day.png','assets/generated-gameplay-evening.png','assets/generated-gameplay-night.png','assets/generated-gameplay-boss.png'];
+  const stageBgFiles=['assets/generated-gameplay-morning.png','assets/generated-gameplay-day.png','assets/generated-gameplay-bg.png','assets/generated-gameplay-evening.png','assets/generated-gameplay-night.png'];
   art.stageBgs=stageBgFiles.map(src=>{const img=new Image(); img.onload=()=>img.ready=true; img.src=src; return img;});
   const enemyItemRects={
     bandit:[9,268,170,224], samurai:[197,239,151,249], armor:[386,204,160,286], archer:[573,250,171,238], horse:[771,98,165,409], boss:[943,187,338,347],
