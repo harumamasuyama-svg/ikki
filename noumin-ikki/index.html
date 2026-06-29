@@ -48,16 +48,20 @@
   const art={title:new Image(),gameplay:new Image(),hero:new Image(),enemyItems:new Image(),titleReady:false,gameplayReady:false,heroReady:false,enemyItemsReady:false};
   art.title.onload=()=>art.titleReady=true; art.gameplay.onload=()=>art.gameplayReady=true; art.hero.onload=()=>art.heroReady=true; art.enemyItems.onload=()=>art.enemyItemsReady=true;
   art.title.src='assets/generated-title-bg.png'; art.gameplay.src='assets/generated-gameplay-bg.png'; art.hero.src='assets/hero-back-sprite.png'; art.enemyItems.src='assets/enemy-item-sprite.png';
-  const enemyItemMap={bandit:0,samurai:1,armor:2,archer:3,horse:4,boss:5,spearItem:6,candleItem:7,coinItem:8,thunderItem:9,supportItem:10,axeShot:11,sickleShot:12,arrowShot:13};
+  const enemyItemRects={
+    bandit:[9,268,170,224], samurai:[197,239,151,249], armor:[386,204,160,286], archer:[573,250,171,238], horse:[771,98,165,409], boss:[943,187,338,347],
+    spearItem:[1313,190,58,308], candleItem:[1385,293,101,195], coinItem:[1510,305,87,173], thunderItem:[1630,281,92,202], supportItem:[1748,224,103,268],
+    axeShot:[1865,324,95,151], sickleShot:[1987,302,83,176], arrowShot:[2104,288,32,190]
+  };
   function enemyItemSprite(name,x,y,scale=.18){
     if(!art.enemyItemsReady) return false;
-    const index=enemyItemMap[name] ?? 0;
-    const cellW=art.enemyItems.naturalWidth/14;
-    const cellH=art.enemyItems.naturalHeight;
-    const dw=cellW*scale;
-    const dh=cellH*scale;
+    const r=enemyItemRects[name];
+    if(!r) return false;
+    const [sx,sy,sw,sh]=r;
+    const dw=sw*scale;
+    const dh=sh*scale;
     ctx.imageSmoothingEnabled=false;
-    ctx.drawImage(art.enemyItems,index*cellW,0,cellW,cellH,Math.round(x-dw/2),Math.round(y-dh/2),Math.round(dw),Math.round(dh));
+    ctx.drawImage(art.enemyItems,sx,sy,sw,sh,Math.round(x-dw/2),Math.round(y-dh/2),Math.round(dw),Math.round(dh));
     return true;
   }
   function sheetSprite(name,x,y,scale=1){
@@ -70,7 +74,7 @@
   function drawCoverImage(img){ const iw=img.naturalWidth||img.width, ih=img.naturalHeight||img.height; if(!iw||!ih)return false; const scale=Math.max(W/iw,H/ih), sw=W/scale, sh=H/scale, sx=(iw-sw)/2, sy=(ih-sh)/2; ctx.drawImage(img,sx,sy,sw,sh,0,0,W,H); return true; }
   const rand=(a,b)=>a+Math.random()*(b-a), clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
   const keys={left:false,right:false,guard:false};
-  const game={mode:'title',score:0,hi:Number(localStorage.nouminHi||0),stage:1,loop:1,candles:5,time:60,thunderStock:1,thunderMax:3,shake:0,flash:0,fail:0,stageIntro:0,stageText:'',overText:'',weapon:'axe',weaponTimer:0,attackTimer:0,spawn:0,shot:0,boss:null,complete:false,bgmStage:0,audio:null,musicTimer:0};
+  const game={mode:'title',score:0,hi:Number(localStorage.nouminHi||0),stage:1,loop:1,candles:5,time:60,thunderStock:1,thunderMax:3,shake:0,flash:0,fail:0,stageIntro:0,stageText:'',overText:'',weapon:'axe',weaponTimer:0,attackTimer:0,spawn:0,shot:0,boss:null,complete:false,bgmStage:0,audio:null,musicTimer:0,lightning:0,bolts:[]};
   const player={x:180,y:535,w:24,h:26,speed:190,inv:0,touchX:null};
   const enemies=[],shots=[],enemyShots=[],items=[],sparks=[],supporters=[];
   // 敵の基本性能。種類追加やバランス調整はここから行えます。
@@ -104,15 +108,37 @@
   function fire(){ if(keys.guard||game.fail>0)return; game.shot-=1/60; if(game.shot>0)return; game.shot=game.weapon==='spear'?.28:.38; const pattern=game.weapon==='spear'?[[-115,-255],[0,-295],[115,-255]]:[[0,-285]]; for(const [vx,vy] of pattern) shots.push({x:player.x,y:player.y-16,vx,vy,w:5,h:13,kind:game.weapon}); game.attackTimer=.18; sfx('atk'); }
   function addSupporter(){ if(supporters.length>=3)return; const slots=[{dx:-72,dy:-10},{dx:72,dy:-10},{dx:0,dy:-48}]; const used=new Set(supporters.map(s=>s.slot)); const idx=slots.findIndex((_,i)=>!used.has(i)); const slot=idx<0?0:idx, f=slots[slot]; supporters.push({slot,dx:f.dx,dy:f.dy,x:player.x+f.dx,y:player.y+f.dy,w:22,h:26,shot:rand(.05,.35)}); }
   function fireSupporters(dt){ for(const s of supporters){ s.shot-=dt; if(s.shot<=0){ s.shot=.52; shots.push({x:s.x,y:s.y-20,vx:0,vy:-245,w:14,h:12,kind:'sickle'}); tone(540,.035,'square',.025); } } }
+  function makeLightningBolts(){
+    const bolts=[];
+    for(let b=0;b<7;b++){
+      const pts=[]; let x=rand(28,332), y=-20; pts.push([x,y]);
+      const targetY=rand(270,560), drift=rand(-70,70);
+      for(let i=1;i<8;i++){ const p=i/7; pts.push([clamp(x+drift*p+rand(-28,28),8,352), -20+(targetY+20)*p]); }
+      bolts.push(pts);
+    }
+    return bolts;
+  }
+  function drawLightning(){
+    if(!game.lightning)return;
+    const a=clamp(game.lightning/.75,0,1), flicker=.55+.45*Math.sin(performance.now()/34);
+    px(0,0,W,H,'rgba(210,235,255,'+(.12*a*flicker)+')');
+    ctx.save(); ctx.lineCap='square'; ctx.lineJoin='miter';
+    for(const pts of game.bolts){
+      ctx.globalAlpha=.95*a; ctx.strokeStyle='#ffffff'; ctx.lineWidth=3; ctx.beginPath(); pts.forEach((p,i)=>i?ctx.lineTo(p[0],p[1]):ctx.moveTo(p[0],p[1])); ctx.stroke();
+      ctx.globalAlpha=.75*a; ctx.strokeStyle='#7de0ff'; ctx.lineWidth=7; ctx.beginPath(); pts.forEach((p,i)=>i?ctx.lineTo(p[0],p[1]):ctx.moveTo(p[0],p[1])); ctx.stroke();
+      for(let i=2;i<pts.length-2;i+=2){ const p=pts[i]; ctx.globalAlpha=.55*a; ctx.strokeStyle='#fff36d'; ctx.lineWidth=2; ctx.beginPath(); ctx.moveTo(p[0],p[1]); ctx.lineTo(clamp(p[0]+rand(-45,45),0,W),p[1]+rand(26,60)); ctx.stroke(); }
+    }
+    ctx.restore();
+  }
   // 必殺技: 防御ボタン5連打で、ボス以外を消す雷を発動します。
-  function thunder(){ if(game.thunderStock<=0||game.mode!=='play'||game.fail>0||game.stageIntro>0)return; game.thunderStock--; game.flash=.45; for(let i=enemies.length-1;i>=0;i--){ game.score+=30; pop(enemies[i].x,enemies[i].y,'#f9f36d'); enemies.splice(i,1); } sfx('thunder'); }
+  function thunder(){ if(game.thunderStock<=0||game.mode!=='play'||game.fail>0||game.stageIntro>0)return; game.thunderStock--; game.flash=.55; game.lightning=.75; game.bolts=makeLightningBolts(); game.shake=10; for(let i=enemies.length-1;i>=0;i--){ game.score+=30; pop(enemies[i].x,enemies[i].y,'#f9f36d'); enemies.splice(i,1); } sfx('thunder'); }
   let guardTaps=[]; function tapGuard(){ const now=performance.now(); guardTaps=guardTaps.filter(t=>now-t<1200); guardTaps.push(now); if(guardTaps.length>=5){guardTaps=[];thunder();} }
   function damage(){ if(game.fail>0||player.inv>0)return; game.candles--; player.inv=1.2; game.shake=12; game.fail=.8; game.overText=game.candles<=0?'ゲームオーバー':'失敗'; sfx(game.candles<=0?'over':'fail'); if(game.candles<=0){ setTimeout(()=>{game.shake=0;game.fail=0;game.mode='gameover';game.hi=Math.max(game.hi,game.score);localStorage.nouminHi=game.hi;},850); } }
   // 撃破時アイテム。確率をここで調整できます。
   function drop(x,y,forceType=null){ const add=(type,vy,life,w=28,h=28)=>items.push({type,x,y,vy,t:0,life,w,h}); if(forceType==='candle'){add('candle',50,5,30,34);return;} const r=Math.random(); if(r<.16)add('spear',45,9,34,42); else if(r<.30)add('candle',50,5,30,34); else if(game.stage>=3&&supporters.length<3&&r<.39)add('support',46,9,34,34); else if(r<.405)add('thunder',42,99,34,34); else if(r<.55)add('coin',50,8,34,34); }
   function pop(x,y,c){ for(let i=0;i<9;i++) sparks.push({x,y,vx:rand(-45,45),vy:rand(-65,20),t:.35,c}); }
   function rect(a,b){return Math.abs(a.x-b.x)*2<a.w+b.w && Math.abs(a.y-b.y)*2<a.h+b.h}
-  function update(dt){ music(dt); if(game.mode!=='play')return; if(game.stageIntro>0){game.stageIntro-=dt; if(game.stageIntro<0)game.stageIntro=0; return;} if(game.fail>0){game.fail-=dt; game.shake=Math.max(0,game.shake-60*dt); if(game.fail<=0)game.shake=0; return;} game.time-=dt; player.inv=Math.max(0,player.inv-dt); game.flash=Math.max(0,game.flash-dt); game.shake=Math.max(0,game.shake-60*dt); game.weaponTimer=Math.max(0,game.weaponTimer-dt); game.attackTimer=Math.max(0,game.attackTimer-dt); if(game.weaponTimer<=0)game.weapon='axe'; if(player.touchX!=null){ const dx=player.touchX-player.x; player.x+=clamp(dx,-player.speed*1.35*dt,player.speed*1.35*dt); } else { player.x+=((keys.right?1:0)-(keys.left?1:0))*player.speed*dt; } player.x=clamp(player.x,28,332); supporters.forEach(s=>{s.x=clamp(player.x+s.dx,28,332);s.y=player.y+s.dy;}); fire(); fireSupporters(dt); shots.forEach(s=>{s.x+=s.vx*dt;s.y+=s.vy*dt}); enemyShots.forEach(s=>{s.x+=s.vx*dt;s.y+=s.vy*dt;s.spin=(s.spin||0)+dt*10}); items.forEach(it=>{it.y+=it.vy*dt;it.t+=dt;it.life-=dt}); sparks.forEach(p=>{p.x+=p.vx*dt;p.y+=p.vy*dt;p.vy+=120*dt;p.t-=dt});
+  function update(dt){ music(dt); if(game.mode!=='play')return; if(game.stageIntro>0){game.stageIntro-=dt; if(game.stageIntro<0)game.stageIntro=0; return;} if(game.fail>0){game.fail-=dt; game.shake=Math.max(0,game.shake-60*dt); if(game.fail<=0)game.shake=0; return;} game.time-=dt; player.inv=Math.max(0,player.inv-dt); game.flash=Math.max(0,game.flash-dt); game.lightning=Math.max(0,(game.lightning||0)-dt); game.shake=Math.max(0,game.shake-60*dt); game.weaponTimer=Math.max(0,game.weaponTimer-dt); game.attackTimer=Math.max(0,game.attackTimer-dt); if(game.weaponTimer<=0)game.weapon='axe'; if(player.touchX!=null){ const dx=player.touchX-player.x; player.x+=clamp(dx,-player.speed*1.35*dt,player.speed*1.35*dt); } else { player.x+=((keys.right?1:0)-(keys.left?1:0))*player.speed*dt; } player.x=clamp(player.x,28,332); supporters.forEach(s=>{s.x=clamp(player.x+s.dx,28,332);s.y=player.y+s.dy;}); fire(); fireSupporters(dt); shots.forEach(s=>{s.x+=s.vx*dt;s.y+=s.vy*dt}); enemyShots.forEach(s=>{s.x+=s.vx*dt;s.y+=s.vy*dt;s.spin=(s.spin||0)+dt*10}); items.forEach(it=>{it.y+=it.vy*dt;it.t+=dt;it.life-=dt}); sparks.forEach(p=>{p.x+=p.vx*dt;p.y+=p.vy*dt;p.vy+=120*dt;p.t-=dt});
     if(game.stage<5){ game.spawn-=dt; const rate=Math.max(.38,1.25-(game.stage*.14)-(game.loop-1)*.35); if(game.spawn<=0){spawnEnemy();game.spawn=rand(rate*.55,rate*1.2);} if(game.time<=0)nextStage(); }
     if(game.boss){ const b=game.boss; b.t+=dt;b.atk-=dt;b.x+=Math.sin(b.t*1.7)*32*dt*b.dir; b.x=clamp(b.x,52,308); if(b.atk<=0){ const pat=Math.floor(b.t)%3; if(pat===0){for(let a=-2;a<=2;a++)enemyShots.push({x:b.x,y:b.y+30,vx:a*42,vy:130,w:8,h:14,spin:0,type:'fire'});} else if(pat===1){const bossAim=clamp((player.x-b.x)*0.32,-70,70); enemyShots.push({x:b.x-22,y:b.y+34,vx:bossAim-22,vy:170,w:10,h:16,spin:0,type:'arrow'});enemyShots.push({x:b.x+22,y:b.y+34,vx:bossAim+22,vy:170,w:10,h:16,spin:0,type:'arrow'});} else {for(let i=0;i<6;i++)enemyShots.push({x:rand(30,330),y:110+i*12,vx:0,vy:145,w:9,h:14,spin:0,type:'bolt'});} b.atk=1.25-(game.loop-1)*.2; } }
     for(const e of enemies){ e.y+=e.spd*dt; e.cool-=dt; if(e.type==='archer'&&e.cool<=0&&e.y<430){ const aim=clamp((player.x-e.x)*0.55,-85,85); enemyShots.push({x:e.x,y:e.y+14,vx:aim,vy:135,w:6,h:14,spin:0,type:'arrow'}); e.cool=rand(2.4,3.4); } }
@@ -152,7 +178,15 @@
   const horseSprite=['................','..........KKK...','...nnnnnnnsss...','..nnnnnnnnnnK...','.NNNnnnnnnnn....','...gggggggg.....','..gggGGGGggg....','..sGGGGGGGGs....','....dd..dd......','...kkk..kkk.....','..kk......kk....'];
   const bossSprite=['.......YYYYYY.......','.....YYUUUUUUYY.....','....YUUUUUUUUUUY....','....UUUUUUUUUUUU....','...uUUUUUUUUUUUUu...','...uUUssssssssUUu...','..uuUssKssssKssUuu..','..uuUUssssssssUUuu..','.gggUUUUUUUUUUUUggg.','.gggUuuuuuuuuuuuUggg','....uUUUUUUUUUUu....','....uUUU....UUUu....','....ddd......ddd....','...kkkk......kkkk...'];
 
-  function drawBg(){ if(art.gameplayReady){ drawCoverImage(art.gameplay); return; } const p=stageLooks[game.stage-1]||stageLooks[0], tt=Math.floor(performance.now()/180); px(0,0,W,H,p.sky);
+  function drawStageMood(){
+    const s=game.stage, t=performance.now()/1000;
+    if(s===1){ px(0,0,W,H,'rgba(255,232,160,.08)'); }
+    if(s===2){ px(0,0,W,H,'rgba(255,202,95,.13)'); for(let i=0;i<18;i++)leaf((i*41+t*12)%W,150+(i%7)*48,i,'rgba(246,214,112,.55)'); }
+    if(s===3){ const g=ctx.createLinearGradient(0,0,0,H); g.addColorStop(0,'rgba(95,36,72,.28)'); g.addColorStop(.45,'rgba(220,92,36,.18)'); g.addColorStop(1,'rgba(28,15,18,.10)'); ctx.fillStyle=g; ctx.fillRect(0,0,W,H); for(let i=0;i<24;i++)leaf((i*37+t*18)%W,90+(i%10)*42,i,'rgba(196,92,42,.60)'); }
+    if(s===4){ px(0,0,W,H,'rgba(7,18,48,.48)'); for(let i=0;i<46;i++)px((i*47)%W,18+(i*31)%165,2,2,i%3?'rgba(210,225,255,.75)':'rgba(255,245,190,.9)'); px(250,42,38,38,'rgba(240,235,190,.18)'); }
+    if(s===5){ px(0,0,W,H,'rgba(0,0,12,.68)'); for(let i=0;i<54;i++)px((i*41)%W,16+(i*29)%150,2,2,'rgba(130,145,190,.65)'); for(let i=0;i<7;i++){ const x=24+i*52+Math.sin(t*2+i)*8, y=470+(i%2)*36; flame(x,y,t*6+i); smoke(x+4,y-10,i); } px(0,420,W,160,'rgba(116,24,10,.18)'); }
+  }
+  function drawBg(){ if(art.gameplayReady){ drawCoverImage(art.gameplay); drawStageMood(); return; } const p=stageLooks[game.stage-1]||stageLooks[0], tt=Math.floor(performance.now()/180); px(0,0,W,H,p.sky);
     for(let y=0;y<86;y+=6)px(0,y,W,1,'rgba(255,255,255,.035)');
     if(game.stage===1){for(let i=0;i<14;i++)leaf(i*31,76+i%4*18,i,'#d4c266')}
     if(game.stage===2){for(let x=18;x<W;x+=58){px(x,56,30,8,'#f4d66a');px(x+10,49,10,22,'#f4d66a');px(x+4,62,22,3,'#fff0a0')}}
@@ -176,7 +210,7 @@
     const x=e.x,y=e.y+Math.sin(performance.now()/180+e.x)*1.2;
     shadow(x,y+22,e.type==='horse'?44:30,7);
     const name=e.type==='bandit'?'bandit':e.type==='samurai'?'samurai':e.type==='archer'?'archer':'horse';
-    const scale=e.type==='horse'?.23:.20;
+    const scale=e.type==='horse'?.13:(e.type==='samurai'?.155:.17);
     if(!enemyItemSprite(name,x,y,scale)){
       const fallback=e.type==='archer'?archerSprite:e.type==='horse'?horseSprite:e.type==='samurai'?samuraiSprite:banditSprite;
       drawSprite(x,y,e.type==='horse'?1.85:1.45,fallback);
@@ -185,13 +219,13 @@
   }
   function drawBoss(b){
     shadow(b.x,b.y+44,88,12);
-    if(!enemyItemSprite('boss',b.x,b.y,.32)) drawSprite(b.x,b.y,3.45,bossSprite);
+    if(!enemyItemSprite('boss',b.x,b.y,.20)) drawSprite(b.x,b.y,3.45,bossSprite);
     px(46,82,268,14,'#120c09');px(50,86,260,8,'#271713');px(50,86,260*(b.hp/b.max),8,'#c43d27');
     text('落ち武者',180,80,14,'#f5c84b','center');
   }
   function drawItem(it){ const x=it.x,y=it.y; px(x-16,y-16,32,32,'rgba(255,244,160,.18)'); const n=it.type==='spear'?'spearItem':it.type==='candle'?'candleItem':it.type==='coin'?'coinItem':it.type==='support'?'supportItem':it.type==='thunder'?'thunderItem':null; if(n&&sheetSprite(n,x,y,0.58))return; if(it.type==='spear'){px(x-2,y-21,4,42,'#d9c06b');px(x-7,y-30,14,10,'#d9d9c9');px(x-5,y-33,10,4,'#ffffff')} if(it.type==='candle'){px(x-9,y-5,18,24,'#fff0b2');px(x-6,y+1,12,15,'#ffd36b');px(x-4,y-18,8,13,'#ff5a2b');px(x-1,y-24,3,8,'#f9f36d')} if(it.type==='coin'){px(x-12,y-12,24,24,'#f2c14b');px(x-8,y-8,16,16,'#ffd970');px(x-3,y-9,6,18,'#9b681f')} if(it.type==='support'){drawSprite(x,y,1.4,farmerSprite);px(x+8,y-18,8,4,'#d9d9c9')} if(it.type==='thunder'){px(x-4,y-18,8,19,'#fff36d');px(x-11,y-1,13,5,'#fff36d');px(x-1,y+1,7,19,'#aee8ff');px(x-8,y+13,10,5,'#aee8ff')} }
-  function render(){ const ox=game.shake?rand(-game.shake,game.shake):0,oy=game.shake?rand(-game.shake,game.shake):0; ctx.save();ctx.translate(ox,oy); drawBg(); enemies.forEach(drawEnemy); if(game.boss)drawBoss(game.boss); shots.forEach(s=>{ if(s.kind==='sickle'&&sheetSprite('sickleShot',s.x,s.y,0.38)){} else if(s.kind==='axe'&&sheetSprite('axeShot',s.x,s.y,0.34)){} else { if(s.kind==='sickle'){px(s.x-8,s.y-4,16,5,'#d9d9c9');px(s.x+2,s.y-10,5,15,'#f1f1dc');px(s.x-7,s.y+2,9,3,'#8a8a78');} else {px(s.x-2,s.y-8,4,16,s.kind==='spear'?'#e7d884':'#c8d0c8'); if(s.kind==='spear')px(s.x-5,s.y-12,10,8,'#f2f2dc'); if(s.kind==='axe'){px(s.x-7,s.y-8,14,6,'#b9c0b8');px(s.x-4,s.y-12,8,4,'#eef2dd')}} } }); enemyShots.forEach(s=>{ if(s.type==='bolt'){px(s.x-4,s.y-8,8,16,'#bfe8ff');px(s.x-1,s.y-13,3,26,'#ffffff')} else if(s.type==='fire'){px(s.x-5,s.y-7,10,14,'#ff7a32');px(s.x-2,s.y-11,5,9,'#f9f36d')} else {px(s.x-s.w/2,s.y-s.h/2,s.w,s.h,'#d9c06b');px(s.x-1,s.y-8,2,16,'#fff0b2')} }); items.forEach(drawItem); sparks.forEach(p=>px(p.x,p.y,3,3,p.c)); supporters.forEach(drawSupporter); drawPlayer(); drawCandles(); ctx.restore(); panel(0,0,W,58); panel(6,6,132,42);panel(144,6,72,42);panel(222,6,92,42); text('SCORE '+String(game.score).padStart(6,'0'),12,21,12); text('面 '+game.stage+'  周 '+game.loop,12,41,13); text(game.stage===5?'BOSS':'TIME '+Math.max(0,Math.ceil(game.time)),180,31,13,'#f5c84b','center'); text('雷 x'+game.thunderStock,268,31,13,game.thunderStock>0?'#aee8ff':'#7b6b55','center'); if(game.weapon==='spear')text('竹やり '+Math.ceil(game.weaponTimer),290,38,12,'#d9d06b','center'); if(game.stageIntro>0){ panel(28,232,304,118); px(42,246,276,3,'#f5c84b');px(42,330,276,3,'#090604'); text(game.stageText,180,282,24,'#f5c84b','center'); text(game.loop+'周目',180,318,17,'#ffffff','center'); } if(game.flash>0){px(0,0,W,H,'rgba(245,245,190,.55)');for(let x=20;x<W;x+=68){px(x,60,8,220,'#fff36d');px(x+8,170,18,8,'#fff36d');px(x+24,178,8,220,'#fff36d')}} if(game.fail>0){text(game.overText,180,320,42,game.candles<=0?'#ff4b32':'#ffffff','center');} }
-  function drawTitle(){ if(art.titleReady)drawCoverImage(art.title); else drawBg(); px(0,0,W,H,'rgba(0,0,0,.12)'); text('農民一揆',184,98,46,'#090604','center'); text('農民一揆',181,95,46,'#7a2418','center'); text('農民一揆',180,90,46,'#f5c84b','center'); text('N O U M I N   I K K I',180,128,13,'#fff0b2','center'); panel(78,360,204,132); text('ゲームスタート',180,398,20,Math.floor(performance.now()/360)%2?'#f5c84b':'#ffffff','center'); text('ハイスコア '+game.hi,180,434,16,'#f8e6a6','center'); text('遊び方',180,468,16,'#d9c06b','center'); text('画面タップ または Enter',180,526,14,'#ffffff','center'); }
+  function render(){ const ox=game.shake?rand(-game.shake,game.shake):0,oy=game.shake?rand(-game.shake,game.shake):0; ctx.save();ctx.translate(ox,oy); drawBg(); enemies.forEach(drawEnemy); if(game.boss)drawBoss(game.boss); shots.forEach(s=>{ if(s.kind==='sickle'&&sheetSprite('sickleShot',s.x,s.y,0.38)){} else if(s.kind==='axe'&&sheetSprite('axeShot',s.x,s.y,0.34)){} else { if(s.kind==='sickle'){px(s.x-8,s.y-4,16,5,'#d9d9c9');px(s.x+2,s.y-10,5,15,'#f1f1dc');px(s.x-7,s.y+2,9,3,'#8a8a78');} else {px(s.x-2,s.y-8,4,16,s.kind==='spear'?'#e7d884':'#c8d0c8'); if(s.kind==='spear')px(s.x-5,s.y-12,10,8,'#f2f2dc'); if(s.kind==='axe'){px(s.x-7,s.y-8,14,6,'#b9c0b8');px(s.x-4,s.y-12,8,4,'#eef2dd')}} } }); enemyShots.forEach(s=>{ if(s.type==='bolt'){px(s.x-4,s.y-8,8,16,'#bfe8ff');px(s.x-1,s.y-13,3,26,'#ffffff')} else if(s.type==='fire'){px(s.x-5,s.y-7,10,14,'#ff7a32');px(s.x-2,s.y-11,5,9,'#f9f36d')} else if(!sheetSprite('arrowShot',s.x,s.y,.30)){px(s.x-s.w/2,s.y-s.h/2,s.w,s.h,'#d9c06b');px(s.x-1,s.y-8,2,16,'#fff0b2')} }); items.forEach(drawItem); sparks.forEach(p=>px(p.x,p.y,3,3,p.c)); supporters.forEach(drawSupporter); drawPlayer(); drawCandles(); ctx.restore(); panel(0,0,W,58); panel(6,6,132,42);panel(144,6,72,42);panel(222,6,92,42); text('SCORE '+String(game.score).padStart(6,'0'),12,21,12); text('面 '+game.stage+'  周 '+game.loop,12,41,13); text(game.stage===5?'BOSS':'TIME '+Math.max(0,Math.ceil(game.time)),180,31,13,'#f5c84b','center'); text('雷 x'+game.thunderStock,268,31,13,game.thunderStock>0?'#aee8ff':'#7b6b55','center'); if(game.weapon==='spear')text('竹やり '+Math.ceil(game.weaponTimer),290,38,12,'#d9d06b','center'); if(game.stageIntro>0){ panel(28,232,304,118); px(42,246,276,3,'#f5c84b');px(42,330,276,3,'#090604'); text(game.stageText,180,282,24,'#f5c84b','center'); text(game.loop+'周目',180,318,17,'#ffffff','center'); } if(game.flash>0){px(0,0,W,H,'rgba(245,245,190,.35)');} drawLightning(); if(game.fail>0){text(game.overText,180,320,42,game.candles<=0?'#ff4b32':'#ffffff','center');} }
+  function drawTitle(){ if(art.titleReady)drawCoverImage(art.title); else drawBg(); px(0,0,W,H,'rgba(0,0,0,.12)'); text('農民一揆',184,98,46,'#090604','center'); text('農民一揆',181,95,46,'#7a2418','center'); text('農民一揆',180,90,46,'#f5c84b','center'); text('N O U M I N   I K K I',180,128,13,'#fff0b2','center'); panel(78,370,204,104); text('ゲームスタート',180,410,20,Math.floor(performance.now()/360)%2?'#f5c84b':'#ffffff','center'); text('ハイスコア '+game.hi,180,448,16,'#f8e6a6','center'); text('画面タップ または Enter',180,526,14,'#ffffff','center'); }
   function drawGameOver(){ render(); px(22,208,316,180,'rgba(18,12,8,.88)'); text('ゲームオーバー',180,260,32,'#ff4b32','center'); text('SCORE '+game.score,180,304,18,'#f8e6a6','center'); text('Enter / Tap でタイトル',180,348,15,'#f5c84b','center'); }
   function drawEnding(){ drawBg(); px(0,0,W,H,'rgba(0,0,0,.22)'); text('一周目クリア',180,188,32,'#f5c84b','center'); text('農民たちは夜明けまで村を守った',180,244,15,'#ffffff','center'); text('しかし落ち武者の怨念は残る',180,276,15,'#d9c06b','center'); text('SCORE '+game.score,180,330,18,'#f8e6a6','center'); text('Tap / Enter で二周目へ',180,390,16,'#f5c84b','center'); }
   function drawComplete(){ drawBg(); text('完全クリア',180,214,38,'#f5c84b','center'); text('農村は守られた',180,270,20,'#ffffff','center'); text('SCORE '+game.score,180,316,18,'#f8e6a6','center'); text('Enter / Tap でタイトル',180,372,15,'#f5c84b','center'); }
